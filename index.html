@@ -176,6 +176,8 @@
   .undo .btn{min-height:38px;background:#fff;color:var(--hib);border-color:#fff}
 
   .linkbtn{display:block;text-align:center;color:var(--muted);font-size:13px;text-decoration:underline;padding:12px 6px 0;cursor:pointer}
+
+  .note.warn{color:var(--terra);font-weight:600}
 </style>
 </head>
 <body>
@@ -236,8 +238,9 @@
     <div class="tools">
       <button class="btn" id="exportCsv" type="button"><svg aria-hidden="true"><use href="#download"/></svg>Exporter en CSV</button>
       <button class="btn" id="backup" type="button"><svg aria-hidden="true"><use href="#download"/></svg>Sauvegarder</button>
-      <label class="btn" style="margin:0"><svg aria-hidden="true"><use href="#upload"/></svg>Restaurer<input type="file" id="restore" accept=".json,application/json" hidden></label>
+      <label class="btn" style="margin:0"><svg aria-hidden="true"><use href="#upload"/></svg>Restaurer<input type="file" id="restore" accept=".json,.txt,application/json,text/plain" hidden></label>
     </div>
+    <p class="note" id="bkInfo"></p>
     <p class="note">Les données restent dans le navigateur de cet appareil. Faites une sauvegarde chaque semaine et gardez le fichier sur WhatsApp ou Google Drive.</p>
   </main>
 
@@ -427,6 +430,7 @@
   }
   function renderList(){
     renderStats();
+    renderBackupInfo();
     const q = $("#search").value.trim().toLowerCase();
     const items = db.clients
       .filter(c => !q || (c.name + " " + c.num + " " + c.phone).toLowerCase().includes(q))
@@ -651,8 +655,43 @@
     download("clients-fidelite-" + today() + ".csv", "text/csv;charset=utf-8", "\ufeff" + [head.map(q).join(";")].concat(rows).join("\r\n"));
   });
 
-  $("#backup").addEventListener("click", () => {
-    download("sauvegarde-fidelite-" + today() + ".json", "application/json", JSON.stringify(db, null, 2));
+  const BK_KEY = "derniere_sauvegarde";
+  function markBackup(){
+    try{ localStorage.setItem(BK_KEY, new Date().toISOString()); }catch(err){}
+    renderBackupInfo();
+  }
+  function renderBackupInfo(){
+    const el = $("#bkInfo");
+    if(!el) return;
+    let iso = null;
+    try{ iso = localStorage.getItem(BK_KEY); }catch(err){}
+    if(!iso){
+      el.textContent = "Aucune sauvegarde faite pour l'instant. Pensez à en faire une.";
+      el.className = "note warn";
+      return;
+    }
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    el.textContent = "Dernière sauvegarde : " + (days <= 0 ? "aujourd'hui" : days === 1 ? "hier" : "il y a " + days + " jours") +
+      (days >= 7 ? ". Pensez à en refaire une." : ".");
+    el.className = days >= 7 ? "note warn" : "note";
+  }
+  $("#backup").addEventListener("click", async () => {
+    const name = "sauvegarde-fidelite-" + today() + ".json";
+    const text = JSON.stringify(db, null, 2);
+    let file = new File([text], name, {type: "application/json"});
+    try{
+      if(navigator.canShare && !navigator.canShare({files: [file]})) file = new File([text], name, {type: "text/plain"});
+      if(navigator.canShare && navigator.canShare({files: [file]})){
+        await navigator.share({files: [file], title: "Sauvegarde fidélité"});
+        markBackup();
+        toast("Sauvegarde envoyée");
+        return;
+      }
+    }catch(err){
+      if(err && err.name === "AbortError") return;
+    }
+    download(name, "application/json", text);
+    markBackup();
     toast("Sauvegarde téléchargée");
   });
 
